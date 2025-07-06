@@ -16,8 +16,8 @@
 
     <div id="chatContainer" class="app-container" style="display: none;">
         <div class="channel-sidebar">
-            <div class="channel-header">
-                <h3>Current User: <span id="myNameDisplay"></span></h3> </div>
+            <div id="nameHud" class="channel-header"> <h3>Current User: <span id="myNameDisplay"></span></h3>
+            </div>
             <div class="channel-list">
                 </div>
             <div class="user-info-footer">
@@ -28,9 +28,9 @@
             <div class="chat-header">
                 <h3># general</h3>
                 <p>Welcome to the chat!</p>
-                <button id="adminPanelBtn" style="display: none;">Admin Panel</button> </div>
-            <div id="messages" class="message-container">
-                </div>
+                <button id="adminPanelBtn" style="display: none;">Admin Panel</button>
+            </div>
+            <div id="chatHud" class="message-container"> </div>
             <div class="message-input-area">
                 <form id="messageForm">
                     <textarea id="chatInput" placeholder="Message #general"></textarea>
