@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Room</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f0f2f5; margin: 0; }
+        .chat-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); width: 80%; max-width: 600px; display: flex; flex-direction: column; height: 80vh; }
+        #messages { flex-grow: 1; border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin-bottom: 15px; overflow-y: auto; background-color: #e9ebee; }
+        #messageInput { flex-grow: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        #messageForm { display: flex; }
+        #messageForm button { width: 80px; padding: 10px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; margin-left: 10px; }
+        #messageForm button:hover { background-color: #218838; }
+        .status-message { font-style: italic; color: #666; text-align: center; margin: 5px 0; }
+        .user-message { margin-bottom: 5px; }
+        .user-message strong { color: #007bff; }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <h2>Welcome, {{ username }}!</h2>
+        <div id="messages"></div>
+        <form id="messageForm">
+            <input type="text" id="messageInput" placeholder="Type a message..." autocomplete="off">
+            <button type="submit">Send</button>
+        </form>
+    </div>
+
+    <script type="text/javascript">
+        // Connects to the Socket.IO server.
+        // When deployed on Render, the browser will automatically use the correct URL.
+        var socket = io();
+
+        var username = "{{ username }}"; // Get username from Flask context
+        var room = 'general'; // Default chat room
+
+        socket.on('connect', function() {
+            socket.emit('join', {'username': username, 'room': room});
+            console.log('Connected to Socket.IO server!');
+        });
+
+        socket.on('status', function(data) {
+            // Displays status messages (user joined/left)
+            var messages = document.getElementById('messages');
+            var item = document.createElement('div');
+            item.className = 'status-message';
+            item.textContent = data.msg;
+            messages.appendChild(item);
+            messages.scrollTop = messages.scrollHeight; // Scroll to bottom
+        });
+
+        socket.on('message', function(data) {
+            // Displays incoming chat messages
+            var messages = document.getElementById('messages');
+            var item = document.createElement('div');
+            item.className = 'user-message';
+            item.innerHTML = '<strong>' + data.username + ':</strong> ' + data.msg;
+            messages.appendChild(item);
+            messages.scrollTop = messages.scrollHeight; // Scroll to bottom
+        });
+
+        document.getElementById('messageForm').onsubmit = function(e) {
+            // Handles sending a new message
+            e.preventDefault(); // Prevent default form submission
+            var input = document.getElementById('messageInput');
+            if (input.value) {
+                socket.emit('message', {'msg': input.value, 'username': username, 'room': room});
+                input.value = ''; // Clear input field
+            }
+        };
+
+        // Optional: Emit a 'leave' event when the user closes the tab/window
+        window.onbeforeunload = function() {
+            socket.emit('leave', {'username': username, 'room': room});
+        };
+    </script>
+</body>
+</html>
