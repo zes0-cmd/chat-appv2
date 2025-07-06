@@ -1,0 +1,14 @@
+/* Example for rainbow text */
+.rainbow-text {
+    background: linear-gradient(to right, red, orange, yellow, green, blue, indigo, violet);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: rainbow-animation 6s linear infinite; /* Adjust speed as needed */
+    background-size: 200% auto; /* Make gradient wider than text */
+}
+
+@keyframes rainbow-animation {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 200% 50%; } /* Move background across */
+}
