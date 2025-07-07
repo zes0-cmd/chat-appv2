@@ -19,7 +19,6 @@
             --message-bg-other: #3f4248; /* Background for other's messages */
             --announcement-bg: #4f545c; /* Background for announcements */
             --announcement-border: #f1c40f; /* Yellowish border for announcements */
-            --coins-color: #FFD700; /* Gold for coins */
         }
 
         body {
@@ -62,16 +61,6 @@
             display: flex;
             align-items: center;
             gap: 15px; /* Space between name and coins */
-        }
-        .coins-display {
-            color: var(--coins-color);
-            font-size: 0.9em;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        .coins-display::before {
-            content: '💰'; /* Coin emoji */
         }
         .chat-area {
             flex-grow: 1;
@@ -284,7 +273,7 @@
             100% { background-position: 100% 50%; } /* Moves the gradient across */
         }
 
-        .admin-panel-button, .shop-button {
+        .admin-panel-button {
             background-color: var(--accent-green); /* Green accent for admin button */
             color: white;
             border: none;
@@ -296,13 +285,13 @@
             transition: background-color 0.2s ease;
             margin-left: 10px; /* Space between buttons */
         }
-        .admin-panel-button:hover, .shop-button:hover {
+        .admin-panel-button:hover {
             background-color: #3aa675; /* Darker green on hover */
         }
         .admin-panel-button { display: none; } /* Hidden by default */
 
-        /* Modals (Admin Panel & Shop & Private Chat) */
-        .admin-modal, .shop-modal, .private-chat-modal {
+        /* Modals (Admin Panel & Private Chat) */
+        .admin-modal, .private-chat-modal {
             display: none; /* Hidden by default */
             position: fixed; /* Stay in place */
             z-index: 1001; /* Sit on top of name selection if it's there */
@@ -317,7 +306,7 @@
             align-items: center;
         }
 
-        .admin-modal-content, .shop-modal-content, .private-chat-modal-content {
+        .admin-modal-content, .private-chat-modal-content {
             background-color: var(--bg-primary); /* Use primary background for modal */
             margin: auto;
             padding: 30px;
@@ -354,7 +343,7 @@
             text-decoration: none;
         }
 
-        .admin-modal-content h2, .shop-modal-content h2, .private-chat-modal-content h2 {
+        .admin-modal-content h2, .private-chat-modal-content h2 {
             margin-top: 0;
             color: var(--text-normal);
             font-size: 1.6em;
@@ -363,7 +352,7 @@
             margin-bottom: 20px;
         }
 
-        .admin-panel-section, .shop-item-list {
+        .admin-panel-section {
             margin-bottom: 25px;
         }
         .admin-panel-section h3 {
@@ -496,59 +485,6 @@
             border: 2px solid var(--text-muted);
         }
 
-        /* Shop Items Styling */
-        .shop-item {
-            background-color: var(--bg-secondary);
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 15px;
-        }
-        .shop-item-info {
-            flex-grow: 1;
-        }
-        .shop-item-info h4 {
-            margin: 0 0 5px 0;
-            color: var(--text-normal);
-            font-size: 1.1em;
-        }
-        .shop-item-info p {
-            margin: 0;
-            color: var(--text-muted);
-            font-size: 0.9em;
-        }
-        .shop-item-cost {
-            display: flex;
-            align-items: center;
-            color: var(--coins-color);
-            font-weight: bold;
-            gap: 5px;
-            font-size: 1em;
-        }
-        .shop-item-buy button {
-            background-color: var(--accent-blue);
-            color: white;
-            border: none;
-            padding: 8px 15px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 0.9em;
-            transition: background-color 0.2s ease;
-        }
-        .shop-item-buy button:hover {
-            background-color: #677bc4;
-        }
-        .shop-item-preview {
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            border: 1px solid var(--text-muted);
-            flex-shrink: 0;
-        }
-
         /* Private Chat Specifics */
         .private-chat-modal-content .chat-area {
             flex-grow: 1; /* Make chat area expand */
@@ -598,10 +534,8 @@
         <div class="header">
             <div class="header-left">
                 <span>Anonymous Chat - You are: <span id="currentUserNameDisplay">Anonymous</span></span>
-                <span id="coinsDisplay" class="coins-display">0</span>
             </div>
             <div class="header-right">
-                <button id="shopButton" class="shop-button">Shop</button>
                 <button id="adminPanelButton" class="admin-panel-button">Admin Panel</button>
             </div>
         </div>
@@ -657,17 +591,6 @@
         </div>
     </div>
 
-    <div id="shopModal" class="shop-modal" style="display: none;">
-        <div class="shop-modal-content">
-            <span class="close-button shop-close-button">&times;</span>
-            <h2>Shop <span class="coins-display" id="shopCoinsDisplay">0</span></h2>
-
-            <div class="shop-item-list" id="shopItemList">
-                <p>Loading shop items...</p>
-            </div>
-        </div>
-    </div>
-
     <div id="privateChatModal" class="private-chat-modal" style="display: none;">
         <div class="private-chat-modal-content">
             <span class="close-button private-chat-close-button">&times;</span>
@@ -687,7 +610,6 @@
         var myUsername = "Anonymous"; // Stores the name this client is using
         var mySid = ''; // To store client's own Socket ID
         var isAdmin = false;
-        var myCoins = 0; // Local coin balance
 
         // For Private Chat
         var currentPrivateChatRoomId = null;
@@ -696,16 +618,6 @@
 
 
         const ADMIN_USERNAME_TRIGGER = "./admin-menu./";
-
-        // Global shop items list (will be populated by server if dynamic, or defined here)
-        const SHOP_ITEMS_CLIENT = {
-            'red_name': {'name': 'Red Name', 'cost': 10, 'type': 'color', 'value': '#FF0000'},
-            'blue_name': {'name': 'Blue Name', 'cost': 10, 'type': 'color', 'value': '#0000FF'},
-            'green_name': {'name': 'Green Name', 'cost': 10, 'type': 'color', 'value': '#008000'},
-            'gold_name': {'name': 'Gold Name', 'cost': 20, 'type': 'color', 'value': '#FFD700'},
-            'pink_name': {'name': 'Pink Name', 'cost': 15, 'type': 'color', 'value': '#FF69B4'},
-        };
-
 
         document.getElementById('connectButton').onclick = function() {
             var inputName = document.getElementById('usernameInput').value.trim();
@@ -731,10 +643,8 @@
             socket.on('name_set_ack', function(data) {
                 // Server confirmed the name, update our local stored name in case it was changed (e.g., if taken)
                 myUsername = data.name;
-                myCoins = data.coins;
                 document.getElementById('currentUserNameDisplay').textContent = myUsername;
-                document.getElementById('coinsDisplay').textContent = myCoins;
-                console.log('Name confirmed by server:', myUsername, 'Coins:', myCoins);
+                console.log('Name confirmed by server:', myUsername);
             });
 
             socket.on('name_taken', function(data) {
@@ -751,25 +661,6 @@
                     document.getElementById('currentUserNameDisplay').classList.add('rainbow-text');
                     document.getElementById('adminPanelButton').style.display = 'inline-block'; // Show admin button
                     addSystemMessage('You are now an Admin! Admin panel button is visible.', 'system');
-                }
-            });
-
-            socket.on('coin_update', function(data) {
-                myCoins = data.coins;
-                document.getElementById('coinsDisplay').textContent = myCoins;
-                document.getElementById('shopCoinsDisplay').textContent = myCoins; // Update in shop modal too
-                console.log('Coins updated:', myCoins);
-            });
-
-            socket.on('purchase_feedback', function(data) {
-                if (data.success) {
-                    addSystemMessage(data.message, 'system');
-                    if (data.type === 'color_update') {
-                        // For simplicity, we don't change past messages, only ensure future ones use this color.
-                        // The server already updates our user_info['color']
-                    }
-                } else {
-                    addSystemMessage(`Purchase failed: ${data.message}`, 'system');
                 }
             });
 
@@ -808,7 +699,6 @@
                 document.getElementById('messageInput').disabled = true;
                 // Close any open modals
                 adminPanelModal.style.display = 'none';
-                shopModal.style.display = 'none';
                 privateChatModal.style.display = 'none';
             });
 
@@ -822,7 +712,6 @@
                 document.getElementById('messageInput').disabled = true;
                 // Close any open modals
                 adminPanelModal.style.display = 'none';
-                shopModal.style.display = 'none';
                 privateChatModal.style.display = 'none';
             });
 
@@ -1050,9 +939,6 @@
             if (event.target == adminPanelModal) {
                 adminPanelModal.style.display = 'none';
             }
-            if (event.target == shopModal) {
-                shopModal.style.display = 'none';
-            }
             if (event.target == privateChatModal) {
                 // For private chat modal, clicking outside should close too
                 privateChatModal.style.display = 'none';
@@ -1114,61 +1000,6 @@
             }
         });
 
-
-        // Shop Button and Modal Logic
-        const shopButton = document.getElementById('shopButton');
-        const shopModal = document.getElementById('shopModal');
-        const shopModalCloseButton = document.querySelector('.shop-close-button'); // Use specific class
-        const shopItemList = document.getElementById('shopItemList');
-        const shopCoinsDisplay = document.getElementById('shopCoinsDisplay');
-
-        shopButton.addEventListener('click', function() {
-            shopModal.style.display = 'flex'; // Use flex to center
-            shopCoinsDisplay.textContent = myCoins; // Update current coins
-            renderShopItems(); // Populate the shop
-        });
-
-        shopModalCloseButton.addEventListener('click', function() {
-            shopModal.style.display = 'none';
-        });
-
-        function renderShopItems() {
-            shopItemList.innerHTML = ''; // Clear previous items
-            for (const itemId in SHOP_ITEMS_CLIENT) {
-                const item = SHOP_ITEMS_CLIENT[itemId];
-                const itemElement = document.createElement('div');
-                itemElement.classList.add('shop-item');
-                let previewHtml = '';
-                if (item.type === 'color') {
-                    previewHtml = `<div class="shop-item-preview" style="background-color: ${item.value};"></div>`;
-                }
-
-                itemElement.innerHTML = `
-                    ${previewHtml}
-                    <div class="shop-item-info">
-                        <h4>${item.name}</h4>
-                        <p>Change your name color to ${item.name}.</p>
-                    </div>
-                    <div class="shop-item-cost">
-                        ${item.cost} 💰
-                    </div>
-                    <div class="shop-item-buy">
-                        <button data-item-id="${itemId}">Buy</button>
-                    </div>
-                `;
-                shopItemList.appendChild(itemElement);
-            }
-
-            // Add event listeners for buy buttons
-            document.querySelectorAll('.shop-item-buy button').forEach(button => {
-                button.onclick = function() {
-                    const itemId = this.dataset.itemId;
-                    if (confirm(`Buy ${SHOP_ITEMS_CLIENT[itemId].name} for ${SHOP_ITEMS_CLIENT[itemId].cost} coins?`)) {
-                        socket.emit('buy_item', { item_id: itemId });
-                    }
-                };
-            });
-        }
 
         // --- Private Chat Modal Logic ---
         const privateChatModal = document.getElementById('privateChatModal');
