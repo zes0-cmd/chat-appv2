@@ -3,60 +3,690 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chat App</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
+    <title>Anonymous Chat</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.min.js"></script>
+    <style>
+        /* Discord-like Colors */
+        :root {
+            --bg-primary: #36393f; /* Dark background */
+            --bg-secondary: #2f3136; /* Slightly lighter for input/headers */
+            --bg-tertiary: #202225; /* Darkest for overall body */
+            --text-normal: #dcddde;
+            --text-muted: #72767d;
+            --accent-green: #43b581; /* Discord green */
+            --accent-blue: #7289da; /* Discord blue */
+            --message-bg-self: #4a4d53; /* Background for your own messages */
+            --message-bg-other: #3f4248; /* Background for other's messages */
+        }
+
+        body {
+            font-family: 'Whitney', 'Helvetica Neue', Helvetica, Arial, sans-serif; /* Discord font */
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-tertiary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: var(--text-normal);
+            font-size: 16px;
+        }
+        .app-wrapper {
+            background-color: var(--bg-primary);
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            width: 90%;
+            max-width: 900px; /* Wider for Discord feel */
+            height: 90vh; /* Use more vertical space */
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            position: relative; /* For positioning admin button */
+        }
+        .header {
+            background-color: var(--bg-secondary);
+            color: var(--text-normal);
+            padding: 15px 20px;
+            text-align: left; /* Align header text left */
+            font-size: 1.1em;
+            font-weight: bold;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1); /* Subtle separator */
+            display: flex; /* To align content and admin button */
+            justify-content: space-between;
+            align-items: center;
+        }
+        .chat-area {
+            flex-grow: 1;
+            padding: 15px 20px;
+            overflow-y: auto;
+            /* Scrollbar styling for Webkit browsers */
+            scrollbar-width: thin;
+            scrollbar-color: var(--bg-secondary) var(--bg-primary);
+        }
+        .chat-area::-webkit-scrollbar {
+            width: 8px;
+        }
+        .chat-area::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+        .chat-area::-webkit-scrollbar-thumb {
+            background-color: var(--bg-secondary);
+            border-radius: 20px;
+            border: 2px solid var(--bg-primary);
+        }
+
+        .message {
+            margin-bottom: 15px; /* More space between messages */
+            display: flex;
+            align-items: flex-start; /* Align avatar and text to top */
+        }
+        .message .avatar {
+            width: 40px;
+            height: 40px;
+            background-color: var(--text-muted); /* Placeholder avatar color */
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            color: white;
+            flex-shrink: 0; /* Prevent avatar from shrinking */
+            margin-right: 12px;
+            font-size: 0.9em;
+        }
+        .message-content {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .message .username {
+            font-weight: bold;
+            color: var(--accent-green); /* Usernames in accent color */
+            margin-bottom: 2px; /* Space between username and text */
+            font-size: 0.95em;
+        }
+        .message .text {
+            word-wrap: break-word;
+            line-height: 1.4;
+            color: var(--text-normal);
+        }
+        .message.system {
+            margin-top: 20px;
+            text-align: center;
+            color: var(--text-muted);
+            font-style: italic;
+            font-size: 0.9em;
+            display: block; /* System messages don't have avatars */
+        }
+        .message.system .text {
+            color: var(--text-muted); /* Ensure text color for system messages */
+        }
+        /* Your own message styling */
+        .message.mine .message-content {
+            background-color: var(--message-bg-self);
+            padding: 8px 12px;
+            border-radius: 8px;
+            margin-left: 52px; /* Align with avatar, but no avatar for "You" */
+        }
+        .message.other .message-content {
+            background-color: var(--message-bg-other);
+            padding: 8px 12px;
+            border-radius: 8px;
+        }
+
+
+        .input-area {
+            background-color: var(--bg-secondary);
+            display: flex;
+            padding: 15px 20px;
+            gap: 10px;
+            border-top: 1px solid rgba(0, 0, 0, 0.1);
+        }
+        .input-area input[type="text"] {
+            flex-grow: 1;
+            padding: 12px 15px;
+            border: none;
+            border-radius: 8px; /* Softer corners */
+            background-color: var(--bg-primary);
+            color: var(--text-normal);
+            font-size: 1em;
+            outline: none; /* Remove blue outline on focus */
+        }
+        .input-area input[type="text"]::placeholder {
+            color: var(--text-muted);
+        }
+        .input-area button {
+            background-color: var(--accent-blue); /* Discord blue button */
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background-color 0.2s ease;
+            font-weight: bold;
+        }
+        .input-area button:hover {
+            background-color: #677bc4; /* Darker blue on hover */
+        }
+
+        /* Name Selection HUD */
+        .name-selection {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85); /* Darker overlay */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .name-selection-box {
+            background-color: var(--bg-primary);
+            padding: 40px; /* More padding */
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            text-align: center;
+            color: var(--text-normal);
+        }
+        .name-selection-box h2 {
+            margin-top: 0;
+            color: var(--text-normal);
+            font-size: 1.8em; /* Larger title */
+            margin-bottom: 10px;
+        }
+        .name-selection-box p {
+            margin-bottom: 25px; /* More space */
+            color: var(--text-muted);
+            font-size: 1.1em;
+        }
+        .name-selection-box input {
+            width: calc(100% - 20px);
+            padding: 15px; /* Larger input */
+            margin-bottom: 25px;
+            border: none;
+            border-radius: 8px;
+            background-color: var(--bg-secondary);
+            color: var(--text-normal);
+            font-size: 1.2em;
+            outline: none;
+        }
+        .name-selection-box button {
+            background-color: var(--accent-blue);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1.2em;
+            transition: background-color 0.2s ease;
+            font-weight: bold;
+        }
+        .name-selection-box button:hover {
+            background-color: #677bc4;
+        }
+
+        /* --- Admin Specific Styling --- */
+        .rainbow-text {
+            background: linear-gradient(to right, #EE82EE, #4B0082, #0000FF, #008000, #FFFF00, #FFA500, #FF0000); /* Violet to Red */
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent; /* Makes the text transparent so background-clip can show */
+            animation: rainbow-animation 6s linear infinite; /* Adjust speed as needed */
+            background-size: 400% 100%; /* Make gradient wider to allow for movement */
+            font-weight: bold; /* Make it stand out */
+        }
+
+        @keyframes rainbow-animation {
+            0% { background-position: 0% 50%; }
+            100% { background-position: 100% 50%; } /* Moves the gradient across */
+        }
+
+        .admin-panel-button {
+            background-color: var(--accent-green); /* Green accent for admin button */
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: bold;
+            transition: background-color 0.2s ease;
+            display: none; /* Hidden by default */
+        }
+        .admin-panel-button:hover {
+            background-color: #3aa675; /* Darker green on hover */
+        }
+
+        /* Admin Panel Modal */
+        .admin-modal {
+            display: none; /* Hidden by default */
+            position: fixed; /* Stay in place */
+            z-index: 1001; /* Sit on top of name selection if it's there */
+            left: 0;
+            top: 0;
+            width: 100%; /* Full width */
+            height: 100%; /* Full height */
+            overflow: auto; /* Enable scroll if needed */
+            background-color: rgba(0,0,0,0.8); /* Darker overlay */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .admin-modal-content {
+            background-color: var(--bg-primary); /* Use primary background for modal */
+            margin: auto;
+            padding: 30px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 600px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+            color: var(--text-normal);
+            position: relative;
+        }
+
+        .close-button {
+            color: var(--text-muted);
+            float: right;
+            font-size: 30px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: color 0.2s ease;
+        }
+        .close-button:hover,
+        .close-button:focus {
+            color: var(--text-normal);
+            text-decoration: none;
+        }
+
+        .admin-modal-content h2 {
+            margin-top: 0;
+            color: var(--text-normal);
+            font-size: 1.6em;
+            border-bottom: 1px solid var(--bg-secondary);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        .admin-panel-section {
+            margin-bottom: 25px;
+        }
+        .admin-panel-section h3 {
+            color: var(--accent-blue);
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+
+        .admin-panel-buttons {
+            display: flex;
+            flex-wrap: wrap; /* Allow buttons to wrap */
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .admin-panel-buttons button {
+            background-color: var(--accent-blue);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.95em;
+            transition: background-color 0.2s ease;
+        }
+        .admin-panel-buttons button:hover {
+            background-color: #677bc4;
+        }
+
+        #adminUserList {
+            max-height: 250px; /* Scrollable user list */
+            overflow-y: auto;
+            background-color: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 10px;
+            scrollbar-width: thin;
+            scrollbar-color: var(--bg-primary) var(--bg-secondary);
+        }
+        #adminUserList::-webkit-scrollbar {
+            width: 6px;
+        }
+        #adminUserList::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+        }
+        #adminUserList::-webkit-scrollbar-thumb {
+            background-color: var(--bg-primary);
+            border-radius: 10px;
+        }
+
+        .admin-user-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 5px;
+            border-bottom: 1px solid var(--bg-primary);
+        }
+        .admin-user-item:last-child {
+            border-bottom: none;
+        }
+        .admin-user-item span {
+            flex-grow: 1;
+            margin-right: 10px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .admin-user-item button {
+            margin-left: 10px;
+            padding: 6px 10px; /* Smaller buttons */
+            font-size: 0.85em;
+            background-color: #f04747; /* Red for kick */
+        }
+        .admin-user-item button:hover {
+            background-color: #cc3939;
+        }
+
+        .admin-user-item input[type="color"] {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            width: 28px;
+            height: 28px;
+            background-color: transparent;
+            border: none;
+            cursor: pointer;
+            border-radius: 50%;
+            overflow: hidden; /* Hide default color picker border */
+            padding: 0;
+            margin-left: 10px;
+        }
+        .admin-user-item input[type="color"]::-webkit-color-swatch {
+            border-radius: 50%;
+            border: 2px solid var(--text-muted); /* Border for color swatch */
+        }
+        .admin-user-item input[type="color"]::-moz-color-swatch {
+            border-radius: 50%;
+            border: 2px solid var(--text-muted);
+        }
+
+    </style>
 </head>
 <body>
-    <div id="nameSelection" class="name-selection-container">
-        <h2>Enter Your Name</h2>
-        <input type="text" id="nameInput" placeholder="Your name...">
-        <button id="nameSubmitBtn">Join Chat</button>
-    </div>
-
-    <div id="chatContainer" class="app-container" style="display: none;">
-        <div class="channel-sidebar">
-            <div id="nameHud" class="channel-header"> <h3>Current User: <span id="myNameDisplay"></span></h3>
-            </div>
-            <div class="channel-list">
-                </div>
-            <div class="user-info-footer">
-                </div>
-        </div>
-
-        <div class="main-chat-area">
-            <div class="chat-header">
-                <h3># general</h3>
-                <p>Welcome to the chat!</p>
-                <button id="adminPanelBtn" style="display: none;">Admin Panel</button>
-            </div>
-            <div id="chatHud" class="message-container"> </div>
-            <div class="message-input-area">
-                <form id="messageForm">
-                    <textarea id="chatInput" placeholder="Message #general"></textarea>
-                    <button type="submit">Send</button>
-                </form>
-            </div>
+    <div class="name-selection" id="nameSelection">
+        <div class="name-selection-box">
+            <h2>Welcome to Anonymous Chat</h2>
+            <p>Choose a name or leave it blank to stay anonymous:</p>
+            <input type="text" id="usernameInput" placeholder="Your Name (optional)">
+            <button id="connectButton">Connect</button>
         </div>
     </div>
 
-    <div id="adminPanelModal" class="admin-modal">
+    <div class="app-wrapper" style="display: none;" id="chatContainer">
+        <div class="header">
+            <span>Anonymous Chat - You are: <span id="currentUserNameDisplay">Anonymous</span></span>
+            <button id="adminPanelButton" class="admin-panel-button">Admin Panel</button>
+        </div>
+        <div class="chat-area" id="messages">
+            </div>
+        <div class="input-area">
+            <input type="text" id="messageInput" placeholder="Message #anonymous-chat">
+            <button id="sendButton">Send</button>
+        </div>
+    </div>
+
+    <div id="adminPanelModal" class="admin-modal" style="display: none;">
         <div class="admin-modal-content">
             <span class="close-button">&times;</span>
             <h2>Admin Panel</h2>
 
-            <div class="admin-panel-buttons">
-                <button id="adminRefreshUsersBtn">Refresh User List</button>
-                <button id="adminClearChatBtn">Clear Chat for All</button>
+            <div class="admin-panel-section">
+                <h3>Global Actions</h3>
+                <div class="admin-panel-buttons">
+                    <button id="adminClearChatBtn">Clear Chat for All</button>
+                    </div>
             </div>
 
-            <h3>Connected Users:</h3>
-            <div id="adminUserList">
-                <p>Loading users...</p>
+            <div class="admin-panel-section">
+                <h3>Connected Users</h3>
+                <div class="admin-panel-buttons">
+                    <button id="adminRefreshUsersBtn">Refresh List</button>
+                </div>
+                <div id="adminUserList">
+                    <p>No users connected.</p>
+                </div>
             </div>
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='script.js') }}"></script>
+
+    <script type="text/javascript">
+        var socket;
+        var myUsername = "Anonymous"; // Stores the name this client is using
+        var mySid = ''; // To store client's own Socket ID
+        var isAdmin = false;
+        const ADMIN_USERNAME_TRIGGER = "./admin-menu./";
+
+        document.getElementById('connectButton').onclick = function() {
+            var inputName = document.getElementById('usernameInput').value.trim();
+            if (inputName) {
+                myUsername = inputName;
+            }
+
+            // Hide name selection and show chat
+            document.getElementById('nameSelection').style.display = 'none';
+            document.getElementById('chatContainer').style.display = 'flex';
+            document.getElementById('messageInput').focus(); // Focus on message input
+
+            // Initialize Socket.IO connection
+            socket = io(); // Connects to the server that served this page
+
+            socket.on('connect', function() {
+                console.log('Connected to server!');
+                mySid = socket.id; // Store my own SID
+                // Tell the server our chosen name (or anonymous)
+                socket.emit('set_name', {'name': myUsername});
+            });
+
+            socket.on('name_set_ack', function(data) {
+                // Server confirmed the name, update our local stored name in case it was changed (e.g., if taken)
+                myUsername = data.name;
+                document.getElementById('currentUserNameDisplay').textContent = myUsername;
+                console.log('Name confirmed by server:', myUsername);
+            });
+
+            socket.on('name_taken', function(data) {
+                // Server told us our chosen name was taken and gave us a new one
+                myUsername = data.new_name;
+                document.getElementById('currentUserNameDisplay').textContent = myUsername;
+                console.warn('Your chosen name was taken. You are now:', myUsername);
+                addSystemMessage(`Your chosen name was taken. You are now: ${myUsername}`, 'system');
+            });
+
+            socket.on('admin_status', function(data) {
+                if (data.is_admin) {
+                    isAdmin = true;
+                    // Apply rainbow effect to my username display in header
+                    document.getElementById('currentUserNameDisplay').classList.add('rainbow-text');
+                    document.getElementById('adminPanelButton').style.display = 'inline-block'; // Show admin button
+                    addSystemMessage('You are now an Admin! Admin panel button is visible.', 'system');
+                }
+            });
+
+            socket.on('message', function(data) {
+                var messagesDiv = document.getElementById('messages');
+                var messageElement = document.createElement('div');
+                messageElement.classList.add('message');
+
+                if (data.user_type === 'system') { // Using user_type for system messages now
+                    messageElement.classList.add('system');
+                    messageElement.innerHTML = `<span class="text">--- ${data.text} ---</span>`;
+                } else {
+                    var avatarInitial = data.user.charAt(0).toUpperCase();
+                    var avatarHtml = `<div class="avatar">${avatarInitial}</div>`;
+                    var messageContentHtml;
+
+                    // Determine if it's my own message
+                    if (data.sender_sid === mySid) { // Check against current client's SID
+                        messageElement.classList.add('mine');
+                        // No avatar for 'mine' messages, but content is shifted
+                        messageContentHtml = `<div class="message-content"><span class="username" style="color: ${data.color || 'var(--text-normal)'};">You</span><span class="text">${data.text}</span></div>`;
+                    } else {
+                        messageElement.classList.add('other');
+                        // Apply rainbow if it's an admin's message
+                        let usernameClass = data.is_admin_message ? 'rainbow-text' : '';
+                        let usernameStyle = data.is_admin_message ? '' : `style="color: ${data.color || 'var(--accent-green)'};"`;
+
+                        messageContentHtml = `
+                            <div class="message-content">
+                                <span class="username ${usernameClass}" ${usernameStyle}>${data.user}</span>
+                                <span class="text">${data.text}</span>
+                            </div>
+                        `;
+                    }
+                    messageElement.innerHTML = avatarHtml + messageContentHtml;
+                }
+                
+                messagesDiv.appendChild(messageElement);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            });
+
+            socket.on('disconnect', function() {
+                console.log('Disconnected from server!');
+                addSystemMessage('--- You have been disconnected. Please refresh to rejoin. ---', 'system');
+                // You might want to prevent sending messages after disconnect
+                document.getElementById('sendButton').disabled = true;
+                document.getElementById('messageInput').disabled = true;
+            });
+
+            // Admin specific Socket.IO handlers
+            socket.on('admin_users_list', function(data) {
+                var adminUserListDiv = document.getElementById('adminUserList');
+                adminUserListDiv.innerHTML = ''; // Clear existing list
+                if (data.users && data.users.length > 0) {
+                    data.users.forEach(function(user) {
+                        if (user.sid === mySid) return; // Don't list self to kick
+
+                        var userItem = document.createElement('div');
+                        userItem.classList.add('admin-user-item');
+                        userItem.innerHTML = `
+                            <span>${user.name} (${user.sid.substring(0, 5)}...)</span>
+                            <button class="kick-btn" data-sid="${user.sid}">Kick</button>
+                            <input type="color" class="color-picker" value="${user.color}" data-sid="${user.sid}">
+                        `;
+                        adminUserListDiv.appendChild(userItem);
+                    });
+
+                    // Add event listeners for new buttons/pickers
+                    document.querySelectorAll('.kick-btn').forEach(function(button) {
+                        button.onclick = function() {
+                            var targetSid = this.dataset.sid;
+                            if (confirm('Are you sure you want to kick ' + (active_users[targetSid]?.name || 'this user') + '?')) {
+                                socket.emit('admin_command', { type: 'kick_user', target_sid: targetSid });
+                            }
+                        };
+                    });
+
+                    document.querySelectorAll('.color-picker').forEach(function(picker) {
+                        picker.onchange = function() {
+                            var targetSid = this.dataset.sid;
+                            var newColor = this.value;
+                            socket.emit('admin_command', { type: 'change_user_color', target_sid: targetSid, color: newColor });
+                        };
+                    });
+
+                } else {
+                    adminUserListDiv.innerHTML = '<p>No other users connected.</p>';
+                }
+            });
+
+            socket.on('clear_chat_display', function() {
+                document.getElementById('messages').innerHTML = ''; // Clear all messages
+                addSystemMessage('Chat cleared by Admin.', 'system');
+            });
+
+            socket.on('user_color_updated', function(data) {
+                addSystemMessage(`User ${data.sid.substring(0,5)}'s color updated to ${data.new_color}. New messages from them will use this color.`, 'system');
+            });
+
+
+        }; // End of connectButton.onclick
+
+        document.getElementById('sendButton').onclick = function() {
+            sendMessage();
+        };
+
+        document.getElementById('messageInput').onkeypress = function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) { // Allow shift+enter for new line
+                e.preventDefault(); // Prevent default new line behavior
+                sendMessage();
+            }
+        };
+
+        function sendMessage() {
+            var messageInput = document.getElementById('messageInput');
+            var messageText = messageInput.value.trim();
+            if (messageText && socket && socket.connected) { // Check if socket is connected
+                socket.emit('send_message', {'text': messageText});
+                messageInput.value = '';
+            }
+        }
+
+        document.getElementById('usernameInput').onkeypress = function(e) {
+            if (e.key === 'Enter') {
+                document.getElementById('connectButton').click();
+                return false;
+            }
+        };
+
+        function addSystemMessage(message, type = 'system') {
+            var messagesDiv = document.getElementById('messages');
+            var messageElement = document.createElement('div');
+            messageElement.classList.add('message', type);
+            messageElement.innerHTML = `<span class="text">--- ${message} ---</span>`;
+            messagesDiv.appendChild(messageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // Admin Panel Button and Modal Logic
+        const adminPanelButton = document.getElementById('adminPanelButton');
+        const adminPanelModal = document.getElementById('adminPanelModal');
+        const adminModalCloseButton = adminPanelModal.querySelector('.close-button');
+        const adminRefreshUsersBtn = document.getElementById('adminRefreshUsersBtn');
+        const adminClearChatBtn = document.getElementById('adminClearChatBtn');
+
+        adminPanelButton.addEventListener('click', function() {
+            if (isAdmin) {
+                adminPanelModal.style.display = 'flex'; // Use flex to center
+                socket.emit('admin_command', { type: 'get_users' }); // Request fresh list
+            }
+        });
+
+        adminModalCloseButton.addEventListener('click', function() {
+            adminPanelModal.style.display = 'none';
+        });
+
+        window.addEventListener('click', function(event) {
+            if (event.target == adminPanelModal) {
+                adminPanelModal.style.display = 'none';
+            }
+        });
+
+        adminRefreshUsersBtn.addEventListener('click', function() {
+            if (isAdmin && socket && socket.connected) {
+                socket.emit('admin_command', { type: 'get_users' });
+            }
+        });
+
+        adminClearChatBtn.addEventListener('click', function() {
+            if (isAdmin && socket && socket.connected) {
+                if (confirm('Are you sure you want to clear the chat for everyone? This cannot be undone.')) {
+                    socket.emit('admin_command', { type: 'refresh_all_chat' });
+                }
+            }
+        });
+
+    </script>
 </body>
 </html>
