@@ -11,7 +11,7 @@ app.config['SECRET_KEY'] = 'your_super_secret_key_12345'
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # In-memory storage for active users
-# Key: Socket ID, Value: {'name': 'username', 'is_admin': False, 'color': '#dcddde', 'coins': 0, 'is_muted': False}
+# Key: Socket ID, Value: {'name': 'username', 'is_admin': False, 'color': '#dcddde', 'is_muted': False}
 active_users = {}
 
 # In-memory storage for temporarily banned names (resets on server restart)
@@ -20,46 +20,15 @@ banned_names = set()
 # Define your admin username (case-sensitive)
 ADMIN_USERNAME_TRIGGER = "./admin-menu./"
 
-# Shop Items (Ephemeral - reset on server restart)
-SHOP_ITEMS = {
-    'red_name': {'name': 'Red Name', 'cost': 10, 'type': 'color', 'value': '#FF0000'},
-    'blue_name': {'name': 'Blue Name', 'cost': 10, 'type': 'color', 'value': '#0000FF'},
-    'green_name': {'name': 'Green Name', 'cost': 10, 'type': 'color', 'value': '#008000'},
-    'gold_name': {'name': 'Gold Name', 'cost': 20, 'type': 'color', 'value': '#FFD700'},
-    'pink_name': {'name': 'Pink Name', 'cost': 15, 'type': 'color', 'value': '#FF69B4'},
-    # Add more items here if you wish
-}
+@app.route('/')
+def index():
+    return render_template('index.html')
 
-# --- Coin Generation Background Task ---
-# This function will run in a separate thread
-def coin_generation_task():
-    while True:
-        # Give coins to all active users
-        with app.app_context(): # Needed if you access Flask/SocketIO outside request context
-            for sid, user_info in list(active_users.items()): # Use list() to iterate a copy
-                if user_info: # Ensure user still exists
-                    user_info['coins'] += 1
-                    # Emit update to just that user
-                    socketio.emit('coin_update', {'coins': user_info['coins']}, room=sid)
-        time.sleep(60) # Wait for 60 seconds (1 minute)
-
-# Start the coin generation task when the app starts
 @socketio.on('connect')
 def handle_connect():
     print(f'Client connected: {request.sid}')
     # Client will send their name via 'set_name' event shortly after connect
     # This also handles initialization of user data for new connections
-
-# This ensures the background task starts only once when the server first runs
-# and isn't restarted for every new client connection.
-if not hasattr(app, 'coin_task_started'):
-    app.coin_task_started = True
-    socketio.start_background_task(target=coin_generation_task)
-    print("Coin generation background task started.")
-
-@app.route('/')
-def index():
-    return render_template('index.html')
 
 @socketio.on('set_name')
 def handle_set_name(data):
@@ -99,19 +68,17 @@ def handle_set_name(data):
         # Emit special event only to admin to trigger rainbow effect and show panel
         emit('admin_status', {'is_admin': True}, room=client_sid)
     
-    # Initialize/update user data including coins and mute status
+    # Initialize/update user data including mute status
     active_users[client_sid] = {
         'name': final_name,
         'is_admin': is_admin,
         'color': '#dcddde', # Default text color
-        'coins': active_users.get(client_sid, {}).get('coins', 0), # Keep coins if reconnecting, else 0
         'is_muted': active_users.get(client_sid, {}).get('is_muted', False) # Keep mute status if reconnecting
     }
     
     # Acknowledge name setting for client
     emit('name_set_ack', {
         'name': final_name,
-        'coins': active_users[client_sid]['coins']
     }, room=client_sid)
 
     # Join a default 'general' room, or allow clients to choose rooms
@@ -170,55 +137,6 @@ def handle_message(data):
     }
     emit('message', message_data, room='general') # Broadcast to all in 'general' room
     print(f"Message from {user_info['name']}: {message_text}")
-
-
-@socketio.on('buy_item')
-def handle_buy_item(data):
-    sid = request.sid
-    if sid not in active_users:
-        return # User not found
-    
-    user_info = active_users[sid]
-    item_id = data.get('item_id')
-    item = SHOP_ITEMS.get(item_id)
-
-    if not item:
-        emit('purchase_feedback', {'success': False, 'message': 'Item not found.'}, room=sid)
-        return
-
-    if user_info['coins'] < item['cost']:
-        emit('purchase_feedback', {'success': False, 'message': 'Not enough coins!'}, room=sid)
-        return
-    
-    # Process purchase
-    user_info['coins'] -= item['cost']
-    
-    if item['type'] == 'color':
-        user_info['color'] = item['value']
-        emit('purchase_feedback', {
-            'success': True,
-            'message': f'You bought {item["name"]} for {item["cost"]} coins!',
-            'type': 'color_update',
-            'value': item['value'],
-            'new_coins': user_info['coins']
-        }, room=sid)
-        # Announce color change to everyone
-        emit('message', {
-            'user': 'System',
-            'text': f'{user_info["name"]} changed their name color.',
-            'user_type': 'system'
-        }, room='general')
-    else:
-        # Handle other item types here if you add them later
-        emit('purchase_feedback', {
-            'success': True,
-            'message': f'You bought {item["name"]} for {item["cost"]} coins!',
-            'new_coins': user_info['coins']
-        }, room=sid)
-
-    # Always send coin update after purchase
-    emit('coin_update', {'coins': user_info['coins']}, room=sid)
-    print(f"{user_info['name']} bought {item['name']}. Coins remaining: {user_info['coins']}")
 
 
 # --- Private Chat Handling ---
@@ -309,7 +227,6 @@ def handle_admin_command(data):
     target_name = data.get('target_name') # For ban/unban
     new_color = data.get('color')
     announcement_message = data.get('message') # For announcement command
-    mute_status = data.get('mute_status') # For mute/unmute
 
     admin_name = active_users[sid]['name']
 
