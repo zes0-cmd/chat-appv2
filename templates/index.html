@@ -297,8 +297,8 @@
             z-index: 1001; /* Sit on top of name selection if it's there */
             left: 0;
             top: 0;
-            width: 100%; /* Full width */
-            height: 100%; /* Full height */
+            width: 100%;
+            height: 100%;
             overflow: auto; /* Enable scroll if needed */
             background-color: rgba(0,0,0,0.8); /* Darker overlay */
             display: flex;
@@ -616,444 +616,452 @@
         var currentPrivateChatOtherUser = null;
         var privateChatMessages = {}; // Stores messages per private chat room: {room_id: [{msg1}, {msg2}]}
 
-
         const ADMIN_USERNAME_TRIGGER = "./admin-menu./";
 
-        document.getElementById('connectButton').onclick = function() {
-            var inputName = document.getElementById('usernameInput').value.trim();
-            if (inputName) {
-                myUsername = inputName;
+        // This ensures the script runs only after the DOM is fully loaded.
+        document.addEventListener('DOMContentLoaded', (event) => {
+            const connectButton = document.getElementById('connectButton');
+            const usernameInput = document.getElementById('usernameInput');
+            const nameSelectionDiv = document.getElementById('nameSelection');
+            const chatContainerDiv = document.getElementById('chatContainer');
+            const messageInput = document.getElementById('messageInput');
+            const sendButton = document.getElementById('sendButton');
+            const currentUserNameDisplay = document.getElementById('currentUserNameDisplay');
+            const messagesDiv = document.getElementById('messages');
+
+            // Admin Panel Button and Modal Logic
+            const adminPanelButton = document.getElementById('adminPanelButton');
+            const adminPanelModal = document.getElementById('adminPanelModal');
+            const adminModalCloseButton = document.querySelector('.admin-close-button'); // Use specific class
+            const adminRefreshUsersBtn = document.getElementById('adminRefreshUsersBtn');
+            const adminClearChatBtn = document.getElementById('adminClearChatBtn');
+            const announcementInput = document.getElementById('announcementInput'); // Moved inside DOMContentLoaded
+            const sendAnnouncementBtn = document.getElementById('sendAnnouncementBtn');
+            const connectedUsersCountSpan = document.getElementById('connectedUsersCount');
+            const banNameInput = document.getElementById('banNameInput');
+            const banNameBtn = document.getElementById('banNameBtn');
+            const unbanNameBtn = document.getElementById('unbanNameBtn');
+
+
+            // Private Chat Modal Logic
+            const privateChatModal = document.getElementById('privateChatModal');
+            const privateChatCloseButton = document.querySelector('.private-chat-close-button');
+            const privateChatHeader = document.getElementById('privateChatHeader');
+            const privateMessagesDiv = document.getElementById('privateMessages');
+            const privateMessageInput = document.getElementById('privateMessageInput');
+            const sendPrivateMessageBtn = document.getElementById('sendPrivateMessageBtn');
+
+
+            connectButton.onclick = function() {
+                var inputName = usernameInput.value.trim();
+                if (inputName) {
+                    myUsername = inputName;
+                }
+
+                // Hide name selection and show chat
+                nameSelectionDiv.style.display = 'none';
+                chatContainerDiv.style.display = 'flex';
+                messageInput.focus(); // Focus on message input
+
+                // Initialize Socket.IO connection
+                socket = io(); // Connects to the server that served this page
+
+                socket.on('connect', function() {
+                    console.log('Connected to server!');
+                    mySid = socket.id; // Store my own SID
+                    // Tell the server our chosen name (or anonymous)
+                    socket.emit('set_name', {'name': myUsername});
+                });
+
+                socket.on('name_set_ack', function(data) {
+                    // Server confirmed the name, update our local stored name in case it was changed (e.g., if taken)
+                    myUsername = data.name;
+                    currentUserNameDisplay.textContent = myUsername;
+                    console.log('Name confirmed by server:', myUsername);
+                });
+
+                socket.on('name_taken', function(data) {
+                    // Server told us our chosen name was taken and gave us a new one
+                    myUsername = data.new_name;
+                    currentUserNameDisplay.textContent = myUsername;
+                    addSystemMessage(`Your chosen name was taken. You are now: ${myUsername}`, 'system');
+                });
+
+                socket.on('admin_status', function(data) {
+                    if (data.is_admin) {
+                        isAdmin = true;
+                        // Apply rainbow effect to my username display in header
+                        currentUserNameDisplay.classList.add('rainbow-text');
+                        adminPanelButton.style.display = 'inline-block'; // Show admin button
+                        addSystemMessage('You are now an Admin! Admin panel button is visible.', 'system');
+                    }
+                });
+
+                socket.on('message', function(data) {
+                    addMessageToDisplay('messages', data); // Add to main chat
+                });
+
+                // --- Private Chat Socket.IO Handlers ---
+                socket.on('private_chat_initiated', function(data) {
+                    // Open the private chat modal for this room
+                    openPrivateChatModal(data.room_id, data.other_user_name, data.other_user_sid);
+                    addSystemMessage(`Private chat started with ${data.other_user_name}.`, 'system');
+                });
+
+                socket.on('private_message', function(data) {
+                    // If the private chat modal for this room is open, display message there
+                    if (currentPrivateChatRoomId === data.room_id) {
+                        addMessageToDisplay('privateMessages', data);
+                    } else {
+                        // Store message if modal not open, and optionally show notification
+                        if (!privateChatMessages[data.room_id]) {
+                            privateChatMessages[data.room_id] = [];
+                        }
+                        privateChatMessages[data.room_id].push(data);
+                        addSystemMessage(`New private message from ${data.user}!`, 'system');
+                        console.log(`New private message from ${data.user} in room ${data.room_id}`);
+                        // You could add a visual notification here for the user
+                    }
+                });
+
+
+                socket.on('disconnect', function() {
+                    console.log('Disconnected from server!');
+                    addSystemMessage('--- You have been disconnected. Please refresh to rejoin. ---', 'system');
+                    sendButton.disabled = true;
+                    messageInput.disabled = true;
+                    // Close any open modals
+                    adminPanelModal.style.display = 'none';
+                    privateChatModal.style.display = 'none';
+                });
+
+                socket.on('disconnect_client', function(data) { // Custom event for server-side disconnects (e.g., ban)
+                    let reason = data.reason || "unknown reason";
+                    addSystemMessage(`--- You have been disconnected by an Admin! Reason: ${reason} ---`, 'system');
+                    if (socket && socket.connected) {
+                        socket.disconnect(); // Force client disconnect
+                    }
+                    sendButton.disabled = true;
+                    messageInput.disabled = true;
+                    // Close any open modals
+                    adminPanelModal.style.display = 'none';
+                    privateChatModal.style.display = 'none';
+                });
+
+                // Admin specific Socket.IO handlers
+                socket.on('admin_users_list', function(data) {
+                    var adminUserListDiv = document.getElementById('adminUserList');
+                    adminUserListDiv.innerHTML = ''; // Clear existing list
+                    connectedUsersCountSpan.textContent = data.total_users; // Update count
+
+                    if (data.users && data.users.length > 0) {
+                        data.users.forEach(function(user) {
+                            // Don't list self, unless for admin
+                            if (user.sid === mySid) {
+                                if (!isAdmin) return; // Non-admins don't see themselves listed
+                            }
+
+                            var userItem = document.createElement('div');
+                            userItem.classList.add('admin-user-item');
+                            
+                            let muteBtnText = user.is_muted ? 'Unmute' : 'Mute';
+                            let muteBtnClass = user.is_muted ? 'unmute-btn' : 'mute-btn';
+                            let banBtnText = bannedNamesClient.has(user.name.toLowerCase()) ? 'Unban' : 'Ban';
+                            let banBtnClass = bannedNamesClient.has(user.name.toLowerCase()) ? 'unban-btn' : 'ban-btn';
+
+                            userItem.innerHTML = `
+                                <span>${user.name} (${user.sid.substring(0, 5)}...)${user.is_admin ? ' (Admin)' : ''}${user.is_muted ? ' (MUTED)' : ''}</span>
+                                <div class="admin-user-item-actions">
+                                    <button class="${muteBtnClass}" data-sid="${user.sid}" data-status="${user.is_muted}">${muteBtnText}</button>
+                                    <button class="${banBtnClass}" data-name="${user.name}">${banBtnText}</button>
+                                    <input type="color" class="color-picker" value="${user.color}" data-sid="${user.sid}">
+                                </div>
+                            `;
+                            adminUserListDiv.appendChild(userItem);
+                        });
+
+                        // Add event listeners for new buttons/pickers
+                        document.querySelectorAll('#adminUserList .admin-user-item-actions button').forEach(function(button) {
+                            button.onclick = function() {
+                                var targetSid = this.dataset.sid;
+                                var targetName = this.dataset.name;
+                                if (this.classList.contains('mute-btn')) {
+                                    if (confirm('Are you sure you want to mute ' + targetName + '?')) {
+                                        socket.emit('admin_command', { type: 'mute_user', target_sid: targetSid });
+                                    }
+                                } else if (this.classList.contains('unmute-btn')) {
+                                    socket.emit('admin_command', { type: 'unmute_user', target_sid: targetSid });
+                                } else if (this.classList.contains('ban-btn')) {
+                                    if (confirm('Are you sure you want to temporarily ban the name "' + targetName + '"? They will be disconnected and unable to rejoin with this name until unbanned (or server restarts).')) {
+                                        socket.emit('admin_command', { type: 'ban_name', target_name: targetName });
+                                    }
+                                } else if (this.classList.contains('unban-btn')) {
+                                    socket.emit('admin_command', { type: 'unban_name', target_name: targetName });
+                                }
+                            };
+                        });
+
+                        document.querySelectorAll('#adminUserList .color-picker').forEach(function(picker) {
+                            picker.onchange = function() {
+                                var targetSid = this.dataset.sid;
+                                var newColor = this.value;
+                                socket.emit('admin_command', { type: 'change_user_color', target_sid: targetSid, color: newColor });
+                            };
+                        });
+
+                    } else {
+                        adminUserListDiv.innerHTML = '<p>No other users connected.</p>';
+                    }
+                });
+
+                socket.on('clear_chat_display', function() {
+                    messagesDiv.innerHTML = ''; // Clear all messages
+                    addSystemMessage('Chat cleared by Admin.', 'system');
+                });
+
+                socket.on('user_color_updated', function(data) {
+                    // This is a system message notifying everyone about the color change
+                    addSystemMessage(`Admin updated ${data.user_name}'s name color to ${data.new_color}. New messages from them will use this color.`, 'system');
+                    // For live messages already on screen from this user:
+                    // Find and update the color of messages already displayed from this user
+                    document.querySelectorAll(`#messages .message[data-sender-sid="${data.sid}"] .username`).forEach(usernameSpan => {
+                        usernameSpan.style.color = data.new_color;
+                    });
+                });
+
+
+            }; // End of connectButton.onclick
+
+            // Store banned names on client-side for displaying "Ban/Unban" button state
+            const bannedNamesClient = new Set();
+            socket.on('admin_name_banned', function(data) {
+                bannedNamesClient.add(data.name.toLowerCase());
+                addSystemMessage(`Name "${data.name}" has been banned.`, 'system');
+            });
+            socket.on('admin_name_unbanned', function(data) {
+                bannedNamesClient.delete(data.name.toLowerCase());
+                addSystemMessage(`Name "${data.name}" has been unbanned.`, 'system');
+            });
+
+
+            sendButton.onclick = function() {
+                sendMessage();
+            };
+
+            messageInput.onkeypress = function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) { // Allow shift+enter for new line
+                    e.preventDefault(); // Prevent default new line behavior
+                    sendMessage();
+                }
+            };
+
+            function sendMessage() {
+                var messageText = messageInput.value.trim();
+                if (messageText && socket && socket.connected) { // Check if socket is connected
+                    socket.emit('send_message', {'text': messageText});
+                    messageInput.value = '';
+                }
             }
 
-            // Hide name selection and show chat
-            document.getElementById('nameSelection').style.display = 'none';
-            document.getElementById('chatContainer').style.display = 'flex';
-            document.getElementById('messageInput').focus(); // Focus on message input
-
-            // Initialize Socket.IO connection
-            socket = io(); // Connects to the server that served this page
-
-            socket.on('connect', function() {
-                console.log('Connected to server!');
-                mySid = socket.id; // Store my own SID
-                // Tell the server our chosen name (or anonymous)
-                socket.emit('set_name', {'name': myUsername});
-            });
-
-            socket.on('name_set_ack', function(data) {
-                // Server confirmed the name, update our local stored name in case it was changed (e.g., if taken)
-                myUsername = data.name;
-                document.getElementById('currentUserNameDisplay').textContent = myUsername;
-                console.log('Name confirmed by server:', myUsername);
-            });
-
-            socket.on('name_taken', function(data) {
-                // Server told us our chosen name was taken and gave us a new one
-                myUsername = data.new_name;
-                document.getElementById('currentUserNameDisplay').textContent = myUsername;
-                addSystemMessage(`Your chosen name was taken. You are now: ${myUsername}`, 'system');
-            });
-
-            socket.on('admin_status', function(data) {
-                if (data.is_admin) {
-                    isAdmin = true;
-                    // Apply rainbow effect to my username display in header
-                    document.getElementById('currentUserNameDisplay').classList.add('rainbow-text');
-                    document.getElementById('adminPanelButton').style.display = 'inline-block'; // Show admin button
-                    addSystemMessage('You are now an Admin! Admin panel button is visible.', 'system');
+            usernameInput.onkeypress = function(e) {
+                if (e.key === 'Enter') {
+                    connectButton.click();
+                    return false;
                 }
-            });
+            };
 
-            socket.on('message', function(data) {
-                addMessageToDisplay('messages', data); // Add to main chat
-            });
+            // Generic function to add messages to a specific chat area (main or private)
+            function addMessageToDisplay(targetDivId, data) {
+                var targetMessagesDiv = document.getElementById(targetDivId); // Changed variable name
+                var messageElement = document.createElement('div');
+                messageElement.classList.add('message');
+                messageElement.dataset.senderSid = data.sender_sid; // Store sender SID for later updates
 
-            // --- Private Chat Socket.IO Handlers ---
-            socket.on('private_chat_initiated', function(data) {
-                // Open the private chat modal for this room
-                openPrivateChatModal(data.room_id, data.other_user_name, data.other_user_sid);
-                addSystemMessage(`Private chat started with ${data.other_user_name}.`, 'system');
-            });
-
-            socket.on('private_message', function(data) {
-                // If the private chat modal for this room is open, display message there
-                if (currentPrivateChatRoomId === data.room_id) {
-                    addMessageToDisplay('privateMessages', data);
-                } else {
-                    // Store message if modal not open, and optionally show notification
-                    if (!privateChatMessages[data.room_id]) {
-                        privateChatMessages[data.room_id] = [];
-                    }
-                    privateChatMessages[data.room_id].push(data);
-                    addSystemMessage(`New private message from ${data.user}!`, 'system');
-                    console.log(`New private message from ${data.user} in room ${data.room_id}`);
-                    // You could add a visual notification here for the user
+                if (data.user_type === 'system') {
+                    messageElement.classList.add('system');
+                    messageElement.innerHTML = `<span class="text">--- ${data.text} ---</span>`;
+                } else if (data.user_type === 'announcement') {
+                    messageElement.classList.add('announcement');
+                    messageElement.innerHTML = `
+                        <span class="username">${data.user}</span>
+                        <span class="text">${data.text}</span>
+                    `;
                 }
-            });
+                else {
+                    var avatarInitial = data.user.charAt(0).toUpperCase();
+                    var avatarHtml = `<div class="avatar">${avatarInitial}</div>`;
+                    var messageContentHtml;
 
+                    if (data.sender_sid === mySid) {
+                        messageElement.classList.add('mine');
+                        messageContentHtml = `<div class="message-content"><span class="username" style="color: ${data.color || 'var(--text-normal)'};">You</span><span class="text">${data.text}</span></div>`;
+                    } else {
+                        messageElement.classList.add('other');
+                        let usernameClass = data.is_admin_message ? 'rainbow-text' : '';
+                        let usernameStyle = data.is_admin_message ? '' : `style="color: ${data.color || 'var(--accent-green)'};"`;
 
-            socket.on('disconnect', function() {
-                console.log('Disconnected from server!');
-                addSystemMessage('--- You have been disconnected. Please refresh to rejoin. ---', 'system');
-                document.getElementById('sendButton').disabled = true;
-                document.getElementById('messageInput').disabled = true;
-                // Close any open modals
-                adminPanelModal.style.display = 'none';
-                privateChatModal.style.display = 'none';
-            });
-
-            socket.on('disconnect_client', function(data) { // Custom event for server-side disconnects (e.g., ban)
-                let reason = data.reason || "unknown reason";
-                addSystemMessage(`--- You have been disconnected by an Admin! Reason: ${reason} ---`, 'system');
-                if (socket && socket.connected) {
-                    socket.disconnect(); // Force client disconnect
-                }
-                document.getElementById('sendButton').disabled = true;
-                document.getElementById('messageInput').disabled = true;
-                // Close any open modals
-                adminPanelModal.style.display = 'none';
-                privateChatModal.style.display = 'none';
-            });
-
-            // Admin specific Socket.IO handlers
-            socket.on('admin_users_list', function(data) {
-                var adminUserListDiv = document.getElementById('adminUserList');
-                adminUserListDiv.innerHTML = ''; // Clear existing list
-                document.getElementById('connectedUsersCount').textContent = data.total_users; // Update count
-
-                if (data.users && data.users.length > 0) {
-                    data.users.forEach(function(user) {
-                        // Don't list self, unless for admin
-                        if (user.sid === mySid) {
-                            if (!isAdmin) return; // Non-admins don't see themselves listed
+                        // Add DM button if it's not a private chat modal AND not admin
+                        let dmButtonHtml = '';
+                        if (targetDivId === 'messages' && data.user_type !== 'private_chat') { // Only in main chat
+                            // Ensure we don't add DM button next to admin or yourself
+                            if (data.user_type !== 'admin_message' && data.sender_sid !== mySid) {
+                                dmButtonHtml = `<button class="dm-button" data-target-sid="${data.sender_sid}" data-target-name="${data.user}">DM</button>`;
+                            }
                         }
 
-                        var userItem = document.createElement('div');
-                        userItem.classList.add('admin-user-item');
-                        
-                        let muteBtnText = user.is_muted ? 'Unmute' : 'Mute';
-                        let muteBtnClass = user.is_muted ? 'unmute-btn' : 'mute-btn';
-                        let banBtnText = bannedNamesClient.has(user.name.toLowerCase()) ? 'Unban' : 'Ban';
-                        let banBtnClass = bannedNamesClient.has(user.name.toLowerCase()) ? 'unban-btn' : 'ban-btn';
-
-                        userItem.innerHTML = `
-                            <span>${user.name} (${user.sid.substring(0, 5)}...)${user.is_admin ? ' (Admin)' : ''}${user.is_muted ? ' (MUTED)' : ''}</span>
-                            <div class="admin-user-item-actions">
-                                <button class="${muteBtnClass}" data-sid="${user.sid}" data-status="${user.is_muted}">${muteBtnText}</button>
-                                <button class="${banBtnClass}" data-name="${user.name}">${banBtnText}</button>
-                                <input type="color" class="color-picker" value="${user.color}" data-sid="${user.sid}">
+                        messageContentHtml = `
+                            <div class="message-content">
+                                <div class="username-wrapper">
+                                    <span class="username ${usernameClass}" ${usernameStyle}>${data.user}</span>
+                                    ${dmButtonHtml}
+                                </div>
+                                <span class="text">${data.text}</span>
                             </div>
                         `;
-                        adminUserListDiv.appendChild(userItem);
-                    });
+                    }
+                    messageElement.innerHTML = avatarHtml + messageContentHtml;
+                }
+                
+                targetMessagesDiv.appendChild(messageElement); // Used targetMessagesDiv here
+                targetMessagesDiv.scrollTop = targetMessagesDiv.scrollHeight;
 
-                    // Add event listeners for new buttons/pickers
-                    document.querySelectorAll('.admin-user-item-actions button').forEach(function(button) {
-                        button.onclick = function() {
-                            var targetSid = this.dataset.sid;
-                            var targetName = this.dataset.name;
-                            if (this.classList.contains('mute-btn')) {
-                                if (confirm('Are you sure you want to mute ' + targetName + '?')) {
-                                    socket.emit('admin_command', { type: 'mute_user', target_sid: targetSid });
-                                }
-                            } else if (this.classList.contains('unmute-btn')) {
-                                socket.emit('admin_command', { type: 'unmute_user', target_sid: targetSid });
-                            } else if (this.classList.contains('ban-btn')) {
-                                if (confirm('Are you sure you want to temporarily ban the name "' + targetName + '"? They will be disconnected and unable to rejoin with this name until unbanned (or server restarts).')) {
-                                    socket.emit('admin_command', { type: 'ban_name', target_name: targetName });
-                                }
-                            } else if (this.classList.contains('unban-btn')) {
-                                socket.emit('admin_command', { type: 'unban_name', target_name: targetName });
+                // Add event listeners for new DM buttons
+                if (targetDivId === 'messages') { // Only for messages in the main chat area
+                    const dmButtons = messageElement.querySelectorAll('.dm-button');
+                    dmButtons.forEach(btn => {
+                        btn.onclick = function() {
+                            const targetSid = this.dataset.targetSid;
+                            const targetName = this.dataset.targetName;
+                            if (targetSid && targetName) {
+                                socket.emit('start_private_chat', { target_sid: targetSid });
                             }
                         };
                     });
+                }
+            }
 
-                    document.querySelectorAll('.color-picker').forEach(function(picker) {
-                        picker.onchange = function() {
-                            var targetSid = this.dataset.sid;
-                            var newColor = this.value;
-                            socket.emit('admin_command', { type: 'change_user_color', target_sid: targetSid, color: newColor });
-                        };
-                    });
 
+            adminPanelButton.addEventListener('click', function() {
+                if (isAdmin) {
+                    adminPanelModal.style.display = 'flex'; // Use flex to center
+                    socket.emit('admin_command', { type: 'get_users' }); // Request fresh list and stats
                 } else {
-                    adminUserListDiv.innerHTML = '<p>No other users connected.</p>';
+                    console.warn("Admin Panel button clicked by non-admin."); // Add a warning for debugging
                 }
             });
 
-            socket.on('clear_chat_display', function() {
-                document.getElementById('messages').innerHTML = ''; // Clear all messages
-                addSystemMessage('Chat cleared by Admin.', 'system');
-            });
-
-            socket.on('user_color_updated', function(data) {
-                // This is a system message notifying everyone about the color change
-                addSystemMessage(`Admin updated ${data.user_name}'s name color to ${data.new_color}. New messages from them will use this color.`, 'system');
-                // For live messages already on screen from this user:
-                // Find and update the color of messages already displayed from this user
-                document.querySelectorAll(`#messages .message[data-sender-sid="${data.sid}"] .username`).forEach(usernameSpan => {
-                    usernameSpan.style.color = data.new_color;
-                });
-            });
-
-
-        }; // End of connectButton.onclick
-
-        // Store banned names on client-side for displaying "Ban/Unban" button state
-        const bannedNamesClient = new Set();
-        socket.on('admin_name_banned', function(data) {
-            bannedNamesClient.add(data.name.toLowerCase());
-            addSystemMessage(`Name "${data.name}" has been banned.`, 'system');
-        });
-        socket.on('admin_name_unbanned', function(data) {
-            bannedNamesClient.delete(data.name.toLowerCase());
-            addSystemMessage(`Name "${data.name}" has been unbanned.`, 'system');
-        });
-
-
-        document.getElementById('sendButton').onclick = function() {
-            sendMessage();
-        };
-
-        document.getElementById('messageInput').onkeypress = function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) { // Allow shift+enter for new line
-                e.preventDefault(); // Prevent default new line behavior
-                sendMessage();
-            }
-        };
-
-        function sendMessage() {
-            var messageInput = document.getElementById('messageInput');
-            var messageText = messageInput.value.trim();
-            if (messageText && socket && socket.connected) { // Check if socket is connected
-                socket.emit('send_message', {'text': messageText});
-                messageInput.value = '';
-            }
-        }
-
-        document.getElementById('usernameInput').onkeypress = function(e) {
-            if (e.key === 'Enter') {
-                document.getElementById('connectButton').click();
-                return false;
-            }
-        };
-
-        // Generic function to add messages to a specific chat area (main or private)
-        function addMessageToDisplay(targetDivId, data) {
-            var messagesDiv = document.getElementById(targetDivId);
-            var messageElement = document.createElement('div');
-            messageElement.classList.add('message');
-            messageElement.dataset.senderSid = data.sender_sid; // Store sender SID for later updates
-
-            if (data.user_type === 'system') {
-                messageElement.classList.add('system');
-                messageElement.innerHTML = `<span class="text">--- ${data.text} ---</span>`;
-            } else if (data.user_type === 'announcement') {
-                messageElement.classList.add('announcement');
-                messageElement.innerHTML = `
-                    <span class="username">${data.user}</span>
-                    <span class="text">${data.text}</span>
-                `;
-            }
-            else {
-                var avatarInitial = data.user.charAt(0).toUpperCase();
-                var avatarHtml = `<div class="avatar">${avatarInitial}</div>`;
-                var messageContentHtml;
-
-                if (data.sender_sid === mySid) {
-                    messageElement.classList.add('mine');
-                    messageContentHtml = `<div class="message-content"><span class="username" style="color: ${data.color || 'var(--text-normal)'};">You</span><span class="text">${data.text}</span></div>`;
-                } else {
-                    messageElement.classList.add('other');
-                    let usernameClass = data.is_admin_message ? 'rainbow-text' : '';
-                    let usernameStyle = data.is_admin_message ? '' : `style="color: ${data.color || 'var(--accent-green)'};"`;
-
-                    // Add DM button if it's not a private chat modal AND not admin
-                    let dmButtonHtml = '';
-                    if (targetDivId === 'messages' && data.user_type !== 'private_chat') { // Only in main chat
-                         // Ensure we don't add DM button next to admin or yourself
-                        if (data.user_type !== 'admin_message' && data.sender_sid !== mySid) {
-                            dmButtonHtml = `<button class="dm-button" data-target-sid="${data.sender_sid}" data-target-name="${data.user}">DM</button>`;
-                        }
-                    }
-
-                    messageContentHtml = `
-                        <div class="message-content">
-                            <div class="username-wrapper">
-                                <span class="username ${usernameClass}" ${usernameStyle}>${data.user}</span>
-                                ${dmButtonHtml}
-                            </div>
-                            <span class="text">${data.text}</span>
-                        </div>
-                    `;
-                }
-                messageElement.innerHTML = avatarHtml + messageContentHtml;
-            }
-            
-            messagesDiv.appendChild(messageElement);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-
-            // Add event listeners for new DM buttons
-            if (targetDivId === 'messages') { // Only for messages in the main chat area
-                const dmButtons = messageElement.querySelectorAll('.dm-button');
-                dmButtons.forEach(btn => {
-                    btn.onclick = function() {
-                        const targetSid = this.dataset.targetSid;
-                        const targetName = this.dataset.targetName;
-                        if (targetSid && targetName) {
-                            socket.emit('start_private_chat', { target_sid: targetSid });
-                        }
-                    };
-                });
-            }
-        }
-
-
-        // Admin Panel Button and Modal Logic
-        const adminPanelButton = document.getElementById('adminPanelButton');
-        const adminPanelModal = document.getElementById('adminPanelModal');
-        const adminModalCloseButton = document.querySelector('.admin-close-button'); // Use specific class
-        const adminRefreshUsersBtn = document.getElementById('adminRefreshUsersBtn');
-        const adminClearChatBtn = document.getElementById('adminClearChatBtn');
-        const announcementInput = document.getElementById('announcementInput');
-        const sendAnnouncementBtn = document.getElementById('sendAnnouncementBtn');
-        const connectedUsersCountSpan = document.getElementById('connectedUsersCount');
-        const banNameInput = document.getElementById('banNameInput');
-        const banNameBtn = document.getElementById('banNameBtn');
-        const unbanNameBtn = document.getElementById('unbanNameBtn');
-
-
-        adminPanelButton.addEventListener('click', function() {
-            if (isAdmin) {
-                adminPanelModal.style.display = 'flex'; // Use flex to center
-                socket.emit('admin_command', { type: 'get_users' }); // Request fresh list and stats
-            }
-        });
-
-        adminModalCloseButton.addEventListener('click', function() {
-            adminPanelModal.style.display = 'none';
-        });
-
-        // Close modal if click outside content
-        window.addEventListener('click', function(event) {
-            if (event.target == adminPanelModal) {
+            adminModalCloseButton.addEventListener('click', function() {
                 adminPanelModal.style.display = 'none';
-            }
-            if (event.target == privateChatModal) {
-                // For private chat modal, clicking outside should close too
-                privateChatModal.style.display = 'none';
-                currentPrivateChatRoomId = null; // Clear active private chat
-                currentPrivateChatOtherUser = null;
-            }
-        });
+            });
 
-        adminRefreshUsersBtn.addEventListener('click', function() {
-            if (isAdmin && socket && socket.connected) {
-                socket.emit('admin_command', { type: 'get_users' });
-            }
-        });
-
-        adminClearChatBtn.addEventListener('click', function() {
-            if (isAdmin && socket && socket.connected) {
-                if (confirm('Are you sure you want to clear the chat for everyone? This cannot be undone.')) {
-                    socket.emit('admin_command', { type: 'refresh_all_chat' });
+            // Close modal if click outside content
+            window.addEventListener('click', function(event) {
+                if (event.target == adminPanelModal) {
+                    adminPanelModal.style.display = 'none';
                 }
-            }
-        });
-
-        sendAnnouncementBtn.addEventListener('click', function() {
-            if (isAdmin && socket && socket.connected) {
-                const message = announcementInput.value.trim();
-                if (message) {
-                    socket.emit('admin_command', { type: 'send_announcement', message: message });
-                    announcementInput.value = ''; // Clear input
-                    addSystemMessage('Your announcement has been sent!', 'system');
-                } else {
-                    alert('Announcement message cannot be empty!');
+                if (event.target == privateChatModal) {
+                    // For private chat modal, clicking outside should close too
+                    privateChatModal.style.display = 'none';
+                    currentPrivateChatRoomId = null; // Clear active private chat
+                    currentPrivateChatOtherUser = null;
                 }
-            }
-        });
+            });
 
-        banNameBtn.addEventListener('click', function() {
-            if (isAdmin && socket && socket.connected) {
-                const nameToBan = banNameInput.value.trim();
-                if (nameToBan) {
-                    if (confirm(`Are you sure you want to temporarily ban the name "${nameToBan}"? Users using this name will be disconnected.`)) {
-                        socket.emit('admin_command', { type: 'ban_name', target_name: nameToBan });
-                        banNameInput.value = '';
+            adminRefreshUsersBtn.addEventListener('click', function() {
+                if (isAdmin && socket && socket.connected) {
+                    socket.emit('admin_command', { type: 'get_users' });
+                }
+            });
+
+            adminClearChatBtn.addEventListener('click', function() {
+                if (isAdmin && socket && socket.connected) {
+                    if (confirm('Are you sure you want to clear the chat for everyone? This cannot be undone.')) {
+                        socket.emit('admin_command', { type: 'refresh_all_chat' });
                     }
-                } else {
-                    alert('Please enter a name to ban.');
                 }
-            }
-        });
+            });
 
-        unbanNameBtn.addEventListener('click', function() {
-            if (isAdmin && socket && socket.connected) {
-                const nameToUnban = banNameInput.value.trim();
-                if (nameToUnban) {
-                    socket.emit('admin_command', { type: 'unban_name', target_name: nameToUnban });
-                    banNameInput.value = '';
-                } else {
-                    alert('Please enter a name to unban.');
+            sendAnnouncementBtn.addEventListener('click', function() {
+                if (isAdmin && socket && socket.connected) {
+                    const message = announcementInput.value.trim();
+                    if (message) {
+                        socket.emit('admin_command', { type: 'send_announcement', message: message });
+                        announcementInput.value = ''; // Clear input
+                        addSystemMessage('Your announcement has been sent!', 'system');
+                    } else {
+                        alert('Announcement message cannot be empty!');
+                    }
                 }
-            }
-        });
+            });
+
+            banNameBtn.addEventListener('click', function() {
+                if (isAdmin && socket && socket.connected) {
+                    const nameToBan = banNameInput.value.trim();
+                    if (nameToBan) {
+                        if (confirm(`Are you sure you want to temporarily ban the name "${nameToBan}"? Users using this name will be disconnected.`)) {
+                            socket.emit('admin_command', { type: 'ban_name', target_name: nameToBan });
+                            banNameInput.value = '';
+                        }
+                    } else {
+                        alert('Please enter a name to ban.');
+                    }
+                }
+            });
+
+            unbanNameBtn.addEventListener('click', function() {
+                if (isAdmin && socket && socket.connected) {
+                    const nameToUnban = banNameInput.value.trim();
+                    if (nameToUnban) {
+                        socket.emit('admin_command', { type: 'unban_name', target_name: nameToUnban });
+                        banNameInput.value = '';
+                    } else {
+                        alert('Please enter a name to unban.');
+                    }
+                }
+            });
 
 
-        // --- Private Chat Modal Logic ---
-        const privateChatModal = document.getElementById('privateChatModal');
-        const privateChatCloseButton = document.querySelector('.private-chat-close-button');
-        const privateChatHeader = document.getElementById('privateChatHeader');
-        const privateMessagesDiv = document.getElementById('privateMessages');
-        const privateMessageInput = document.getElementById('privateMessageInput');
-        const sendPrivateMessageBtn = document.getElementById('sendPrivateMessageBtn');
-
-        privateChatCloseButton.addEventListener('click', function() {
-            privateChatModal.style.display = 'none';
-            currentPrivateChatRoomId = null; // Clear active private chat
-            currentPrivateChatOtherUser = null;
-        });
-
-        sendPrivateMessageBtn.addEventListener('click', function() {
-            sendPrivateMessage();
-        });
-
-        privateMessageInput.onkeypress = function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
+            // --- Private Chat Modal Logic Functions ---
+            sendPrivateMessageBtn.addEventListener('click', function() {
                 sendPrivateMessage();
-            }
-        };
+            });
 
-        function sendPrivateMessage() {
-            const messageText = privateMessageInput.value.trim();
-            if (messageText && currentPrivateChatRoomId && socket && socket.connected) {
-                socket.emit('send_private_message', {
-                    room_id: currentPrivateChatRoomId,
-                    text: messageText
-                });
-                privateMessageInput.value = '';
-            }
-        }
+            privateMessageInput.onkeypress = function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendPrivateMessage();
+                }
+            };
 
-        function openPrivateChatModal(roomId, otherUserName, otherUserSid) {
-            currentPrivateChatRoomId = roomId;
-            currentPrivateChatOtherUser = { name: otherUserName, sid: otherUserSid };
-            
-            privateChatHeader.textContent = `Private Chat with ${otherUserName}`;
-            privateMessagesDiv.innerHTML = ''; // Clear previous messages
-
-            // If there are stored messages for this chat, display them
-            if (privateChatMessages[roomId]) {
-                privateChatMessages[roomId].forEach(msg => addMessageToDisplay('privateMessages', msg));
+            function sendPrivateMessage() {
+                const messageText = privateMessageInput.value.trim();
+                if (messageText && currentPrivateChatRoomId && socket && socket.connected) {
+                    socket.emit('send_private_message', {
+                        room_id: currentPrivateChatRoomId,
+                        text: messageText
+                    });
+                    privateMessageInput.value = '';
+                }
             }
 
-            privateChatModal.style.display = 'flex';
-            privateMessagesDiv.scrollTop = privateMessagesDiv.scrollHeight;
-            privateMessageInput.focus();
-        }
+            function openPrivateChatModal(roomId, otherUserName, otherUserSid) {
+                currentPrivateChatRoomId = roomId;
+                currentPrivateChatOtherUser = { name: otherUserName, sid: otherUserSid };
+                
+                privateChatHeader.textContent = `Private Chat with ${otherUserName}`;
+                privateMessagesDiv.innerHTML = ''; // Clear previous messages
 
+                // If there are stored messages for this chat, display them
+                if (privateChatMessages[roomId]) {
+                    privateChatMessages[roomId].forEach(msg => addMessageToDisplay('privateMessages', msg));
+                }
+
+                privateChatModal.style.display = 'flex';
+                privateMessagesDiv.scrollTop = privateMessagesDiv.scrollHeight;
+                privateMessageInput.focus();
+            }
+
+        }); // End of DOMContentLoaded
     </script>
 </body>
 </html>
